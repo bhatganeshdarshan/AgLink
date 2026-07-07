@@ -1,0 +1,11 @@
+# AgLink manifest tracks projected-file hashes; keep it local.
+.agentsync/.aglink-manifest.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
