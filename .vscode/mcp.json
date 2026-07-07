@@ -1,12 +1,12 @@
 {
   "servers": {
-    "filesystem": {
+    "aglink": {
       "type": "stdio",
-      "command": "npx",
+      "command": "python",
       "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "."
+        "-m",
+        "aglink",
+        "serve"
       ]
     }
   }

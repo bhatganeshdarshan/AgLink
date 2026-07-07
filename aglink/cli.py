@@ -114,6 +114,26 @@ def cmd_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    from .mcpserver import serve
+
+    return serve(find_root())
+
+
+def cmd_sessions(args: argparse.Namespace) -> int:
+    from .store import SessionStore
+
+    store = SessionStore(find_root())
+    records = store.list()
+    if not records:
+        print("No checkpoints saved yet.")
+        return 0
+    for r in records:
+        goal = r.get("goal") or r["summary"][:60]
+        print(f"  {r['id']}  agent={r.get('agent') or '?':<12}  {goal}")
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     root = find_root()
     canonical = load(root)
@@ -159,6 +179,14 @@ def main(argv: list[str] | None = None) -> int:
 
     p_status = sub.add_parser("status", help="show which projected files are in sync")
     p_status.set_defaults(func=cmd_status)
+
+    p_serve = sub.add_parser(
+        "serve", help="run the AgLink MCP server (session handoff + memory) on stdio"
+    )
+    p_serve.set_defaults(func=cmd_serve)
+
+    p_sessions = sub.add_parser("sessions", help="list saved session checkpoints")
+    p_sessions.set_defaults(func=cmd_sessions)
 
     # Best-effort: emit UTF-8 so file paths / banners never crash on Windows cp1252.
     for stream in (sys.stdout, sys.stderr):

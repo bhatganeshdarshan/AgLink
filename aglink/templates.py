@@ -22,9 +22,9 @@ Describe what this project is and what you want agents to help with.
 MCP_JSON = """\
 {
   "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+    "aglink": {
+      "command": "python",
+      "args": ["-m", "aglink", "serve"],
       "env": {}
     }
   }

@@ -39,7 +39,29 @@ aglink init      # scaffold .agentsync/ (AGENTS.md, mcp.json, config.toml)
 aglink sync      # project canonical files into every enabled agent
 aglink sync --check   # dry run — show what would change, write nothing
 aglink status    # show which projected files are in-sync / drifted / missing
+aglink serve     # run the AgLink MCP server (session handoff + memory)
+aglink sessions  # list saved session checkpoints
 ```
+
+## Session handoff — continue in another agent
+
+Every agent connects to the same AgLink MCP server (it's in the projected MCP
+configs by default), which exposes:
+
+| Tool | Purpose |
+|---|---|
+| `session_checkpoint` | Save a handoff brief: summary, goal, next steps, files touched, decisions |
+| `session_resume` | Load the latest (or a specific) checkpoint and continue |
+| `session_list` | List all checkpoints |
+| `memory_append` | Save a durable fact to shared cross-agent memory |
+| `memory_search` | Keyword-search the shared memory |
+
+**The flow:** running low on tokens in Claude Code? Ask it to
+"checkpoint this session". Open Codex (or any other agent), say
+"resume the last aglink session" — it calls `session_resume` and picks up with
+the goal, the decisions already made, the files touched, and the next steps.
+State lives in `.agentsync/sessions/` and `.agentsync/memory/`, so it's
+git-trackable and travels with the repo.
 
 ### Canonical workspace (`.agentsync/`)
 
@@ -63,8 +85,8 @@ already had a hand-written `CLAUDE.md`, it's skipped with a warning.
 
 ## Roadmap
 
-- [x] **Config projector** — canonical → native files (this release).
-- [ ] **Session handoff MCP server** — `checkpoint` / `resume` + shared memory
+- [x] **Config projector** — canonical → native files.
+- [x] **Session handoff MCP server** — `checkpoint` / `resume` + shared memory
   as MCP tools, so you can run out of tokens in one agent and continue in
   another with full context.
 - [ ] **MCP gateway** — one endpoint aggregating all your MCP servers, so every

@@ -1,11 +1,11 @@
 {
   "mcpServers": {
-    "filesystem": {
-      "command": "npx",
+    "aglink": {
+      "command": "python",
       "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "."
+        "-m",
+        "aglink",
+        "serve"
       ],
       "env": {}
     }
