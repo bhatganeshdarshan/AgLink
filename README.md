@@ -1,5 +1,7 @@
 # AgLink
 
+![LOGO](./image.png)
+
 **One canonical agent workspace, projected into every coding agent.**
 
 You write your instructions, MCP servers, and shared continuity once. AgLink
