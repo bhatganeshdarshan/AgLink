@@ -2,10 +2,10 @@
 
 **One canonical agent workspace, projected into every coding agent.**
 
-You write your instructions, MCP servers, and (soon) memory once. AgLink
-projects that single source of truth into the native config files each agent
-expects — Claude Code, Codex/OpenCode, GitHub Copilot, and more — so they all
-share the same brain.
+You write your instructions, MCP servers, and shared continuity once. AgLink
+projects that source of truth into the native config files each agent expects
+so Claude Code, Codex/OpenCode, GitHub Copilot, and future adapters can share
+the same workspace brain.
 
 ## Why
 
@@ -17,8 +17,8 @@ Every coding agent invented its own conventions:
 | Codex / OpenCode / Zed | `AGENTS.md` | `~/.codex/config.toml` |
 | GitHub Copilot | `.github/copilot-instructions.md` | `.vscode/mcp.json` |
 
-Keeping these in sync by hand is error-prone. AgLink makes one source canonical
-and generates the rest.
+Keeping these in sync by hand is error-prone. AgLink makes one source
+canonical and generates the rest.
 
 ## Install
 
@@ -35,18 +35,17 @@ pip install -e .
 ## Usage
 
 ```bash
-aglink init      # scaffold .agentsync/ (AGENTS.md, mcp.json, config.toml)
-aglink sync      # project canonical files into every enabled agent
-aglink sync --check   # dry run — show what would change, write nothing
-aglink status    # show which projected files are in-sync / drifted / missing
-aglink serve     # run the AgLink MCP server (session handoff + memory)
-aglink sessions  # list saved session checkpoints
+aglink init           # scaffold .agentsync/ (AGENTS.md, mcp.json, config.toml)
+aglink sync           # project canonical files into every enabled agent
+aglink sync --check   # dry run; show what would change, write nothing
+aglink status         # show which projected files are in-sync / drifted / missing
+aglink serve          # run the AgLink MCP server (handoff + memory + gateway)
+aglink sessions       # list saved session checkpoints
 ```
 
-## Session handoff — continue in another agent
+## Session handoff
 
-Every agent connects to the same AgLink MCP server (it's in the projected MCP
-configs by default), which exposes:
+Every agent connects to the same AgLink MCP server, which exposes:
 
 | Tool | Purpose |
 |---|---|
@@ -56,41 +55,55 @@ configs by default), which exposes:
 | `memory_append` | Save a durable fact to shared cross-agent memory |
 | `memory_search` | Keyword-search the shared memory |
 
-**The flow:** running low on tokens in Claude Code? Ask it to
-"checkpoint this session". Open Codex (or any other agent), say
-"resume the last aglink session" — it calls `session_resume` and picks up with
-the goal, the decisions already made, the files touched, and the next steps.
-State lives in `.agentsync/sessions/` and `.agentsync/memory/`, so it's
-git-trackable and travels with the repo.
+Running low on context in one agent? Ask it to checkpoint the session. Open
+another agent and say "resume the last aglink session" and it can continue with
+the saved goal, decisions, touched files, and next steps. State lives in
+`.agentsync/sessions/` and `.agentsync/memory/`, so it travels with the repo.
 
-### Canonical workspace (`.agentsync/`)
+## MCP gateway
 
-- **`AGENTS.md`** — your instructions (the convergent cross-agent standard).
-- **`mcp.json`** — MCP servers in the standard `{"mcpServers": {...}}` schema.
-- **`config.toml`** — which agents to target, and options like the banner.
+AgLink can also act as an MCP gateway. Keep your real upstream servers in
+`.agentsync/mcp.json`, then enable this in `.agentsync/config.toml`:
 
-### What gets generated
+```toml
+[mcp]
+gateway = true
+gateway_name = "aglink"
+```
 
-- `CLAUDE.md` — a thin `@import` of the canonical `AGENTS.md` (true live single
-  source; editing the canonical needs no re-sync for Claude).
-- `.mcp.json` — 1:1 copy of your MCP config.
-- `AGENTS.md` (repo root) — copy read by Codex, OpenCode, Zed, Cursor.
-- `.agentsync/generated/codex.config.toml` — TOML snippet to merge into
-  `~/.codex/config.toml` (Codex configures MCP globally).
-- `.github/copilot-instructions.md` — Copilot instructions.
-- `.vscode/mcp.json` — Copilot/VS Code MCP config (transformed schema).
+When gateway mode is on, `aglink sync` projects only the `aglink` server into
+agent configs. AgLink then connects to every other canonical MCP server itself
+and republishes their tools with namespaced names such as
+`filesystem__read_file` or `github__search_repositories`.
 
-AgLink **never overwrites a pre-existing file it didn't generate** — if you
-already had a hand-written `CLAUDE.md`, it's skipped with a warning.
+## Canonical workspace
+
+The canonical source lives in `.agentsync/`:
+
+- `AGENTS.md` - cross-agent instructions.
+- `mcp.json` - MCP servers in the standard `{"mcpServers": {...}}` schema.
+- `config.toml` - target agents and options like banners and gateway mode.
+
+## Generated outputs
+
+- `CLAUDE.md` - a thin `@import` of the canonical `AGENTS.md`.
+- `.mcp.json` - Claude Code MCP config.
+- `AGENTS.md` at repo root - instruction copy for Codex/OpenCode/Zed/Cursor.
+- `.agentsync/generated/codex.config.toml` - TOML snippet to merge into `~/.codex/config.toml`.
+- `.github/copilot-instructions.md` - Copilot instructions.
+- `.vscode/mcp.json` - Copilot / VS Code MCP config.
+
+If gateway mode is enabled, those generated MCP configs contain only the AgLink
+server entry; the upstream servers remain canonical inside `.agentsync/mcp.json`.
+
+AgLink never overwrites a pre-existing file it did not generate. If you already
+had a hand-written `CLAUDE.md`, it is skipped with a warning.
 
 ## Roadmap
 
-- [x] **Config projector** — canonical → native files.
-- [x] **Session handoff MCP server** — `checkpoint` / `resume` + shared memory
-  as MCP tools, so you can run out of tokens in one agent and continue in
-  another with full context.
-- [ ] **MCP gateway** — one endpoint aggregating all your MCP servers, so every
-  agent shares a single connection and config.
-- [ ] **Global layer** — machine-wide canonical workspace merged with per-repo.
-- [ ] **`doctor`** — detect installed agents and config drift automatically.
+- [x] Config projector - canonical to native agent files.
+- [x] Session handoff MCP server - checkpoint/resume plus shared memory.
+- [x] MCP gateway - one endpoint aggregating all canonical MCP servers.
+- [ ] Global layer - machine-wide canonical workspace merged with per-repo.
+- [ ] `doctor` - detect installed agents and config drift automatically.
 - [ ] Cursor / Gemini / Windsurf adapters.

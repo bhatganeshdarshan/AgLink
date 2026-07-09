@@ -1,6 +1,9 @@
 # AgLink manifest tracks projected-file hashes; keep it local.
 .agentsync/.aglink-manifest.json
 
+# Agent-local, machine-specific CLI config (absolute paths, trust flags).
+.codex/
+
 # Python
 __pycache__/
 *.py[cod]

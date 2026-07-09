@@ -21,12 +21,13 @@ def _banner(canonical: Canonical, src: str) -> str:
 # MCP: .mcp.json uses the exact `{"mcpServers": {...}}` schema — a 1:1 copy.
 def render_claude(canonical: Canonical) -> dict[str, str]:
     out: dict[str, str] = {}
+    mcp_servers = canonical.projected_mcp_servers()
     if canonical.agents_md is not None:
         body = _banner(canonical, "AGENTS.md") + "@.agentsync/AGENTS.md\n"
         out["CLAUDE.md"] = body
-    if canonical.mcp_servers:
+    if mcp_servers:
         out[".mcp.json"] = json.dumps(
-            {"mcpServers": canonical.mcp_servers}, indent=2
+            {"mcpServers": mcp_servers}, indent=2
         ) + "\n"
     return out
 
@@ -37,11 +38,12 @@ def render_claude(canonical: Canonical) -> dict[str, str]:
 # ready-to-merge TOML snippet as an artifact rather than writing a global file.
 def render_codex(canonical: Canonical) -> dict[str, str]:
     out: dict[str, str] = {}
+    mcp_servers = canonical.projected_mcp_servers()
     if canonical.agents_md is not None:
         out["AGENTS.md"] = _banner(canonical, "AGENTS.md") + canonical.agents_md
-    if canonical.mcp_servers:
+    if mcp_servers:
         blocks = []
-        for name, cfg in canonical.mcp_servers.items():
+        for name, cfg in mcp_servers.items():
             table = {k: v for k, v in cfg.items() if k != "env" and v}
             if cfg.get("env"):
                 table["env"] = cfg["env"]
@@ -60,13 +62,14 @@ def render_codex(canonical: Canonical) -> dict[str, str]:
 # MCP: .vscode/mcp.json uses a `servers` key with an explicit transport `type`.
 def render_copilot(canonical: Canonical) -> dict[str, str]:
     out: dict[str, str] = {}
+    mcp_servers = canonical.projected_mcp_servers()
     if canonical.agents_md is not None:
         out[".github/copilot-instructions.md"] = (
             _banner(canonical, "AGENTS.md") + canonical.agents_md
         )
-    if canonical.mcp_servers:
+    if mcp_servers:
         servers = {}
-        for name, cfg in canonical.mcp_servers.items():
+        for name, cfg in mcp_servers.items():
             entry = {"type": "stdio", "command": cfg.get("command")}
             if cfg.get("args"):
                 entry["args"] = cfg["args"]

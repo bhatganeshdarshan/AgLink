@@ -1,0 +1,35 @@
+{
+  "id": "20260707-070819",
+  "created": "2026-07-07T14:08:19Z",
+  "agent": "claude-code",
+  "goal": "Build AgLink: one canonical workspace (single AGENTS.md, single MCP config, shared memory, cross-agent session handoff) projected across all coding agents (Claude Code, Codex, OpenCode, GitHub Copilot; later Cursor/Gemini/Windsurf)",
+  "summary": "AgLink v0.1.0 is built, tested, and committed (2 commits on main, working tree may contain untracked .codex/ and image.png). It is a pure-Python (3.14, stdlib-only, no pip available on this machine) tool living at C:\\Users\\GD\\Documents\\AgLink that solves cross-agent config fragmentation. Phase 1 (config projector): canonical .agentsync/ workspace (AGENTS.md, mcp.json, config.toml) projected via `aglink sync` into CLAUDE.md (@import of canonical), .mcp.json, root AGENTS.md (Codex/OpenCode), .github/copilot-instructions.md, .vscode/mcp.json, and .agentsync/generated/codex.config.toml. Commands: init/sync/sync --check/status/serve/sessions. Sync refuses to clobber files it didn't generate; hash manifest (.agentsync/.aglink-manifest.json, gitignored) powers drift detection. Phase 2 (session handoff MCP server): aglink/mcpserver.py implements MCP stdio transport by hand (newline-delimited JSON-RPC 2.0; initialize/ping/tools/list/tools/call) exposing session_checkpoint, session_resume, session_list, memory_append, memory_search backed by aglink/store.py writing to .agentsync/sessions/*.json and .agentsync/memory/*.md. 12/12 end-to-end tests passed (scratchpad test_mcp.py spawned two separate server processes simulating claude->codex handoff). The server is registered in canonical mcp.json as `python -m aglink serve` and projected everywhere; it is confirmed working live (this very checkpoint was saved through it). Known Windows quirks handled: cp1252 console (stdout reconfigured to utf-8, ASCII-safe output), no symlinks (generated files with banner instead).",
+  "next_steps": [
+    "Pick and build phase 3 - candidates in order discussed: MCP gateway/proxy (aggregate user's other MCP servers behind the one aglink endpoint), global machine-wide canonical layer merged with per-repo (user chose 'both, per-project first' so global layer is promised), Cursor/Gemini/Windsurf adapters, `aglink doctor` command (detect installed agents + drift)",
+    "Consider a file watcher for auto-sync on .agentsync/ edits",
+    "Consider semantic (embedding) memory search to replace keyword scoring",
+    "Package/distribute: pyproject.toml exists with `aglink` console script; user has no pip on PATH (python is Windows Store 3.14.6), so `pip install -e .` may need py -m pip or python -m pip check"
+  ],
+  "files_touched": [
+    "aglink/cli.py \u00e2\u20ac\u201d argparse CLI: init/sync/status/serve/sessions, utf-8 stdout reconfigure, ANSI colors, GENERATED_MARK clobber guard",
+    "aglink/core.py \u00e2\u20ac\u201d canonical loading, find_root walks up for .agentsync/, sha-16 hashing, manifest load/save",
+    "aglink/adapters.py \u00e2\u20ac\u201d render_claude/render_codex/render_copilot, ADAPTERS dict; add new agents here",
+    "aglink/tomlw.py \u00e2\u20ac\u201d minimal TOML writer (stdlib tomllib reads but can't write)",
+    "aglink/store.py \u00e2\u20ac\u201d SessionStore (checkpoint/list/get/brief) + MemoryStore (append/search, frontmatter md files, MEMORY.md index, slug collision suffixing)",
+    "aglink/mcpserver.py \u00e2\u20ac\u201d hand-rolled MCP stdio server, TOOLS schemas, Server.handle JSON-RPC dispatch",
+    "aglink/templates.py \u00e2\u20ac\u201d init scaffolding content; mcp.json template registers the aglink server itself",
+    ".agentsync/mcp.json \u00e2\u20ac\u201d canonical MCP config, currently only the aglink server",
+    "README.md \u00e2\u20ac\u201d full docs incl. handoff flow table and roadmap checkboxes",
+    "pyproject.toml \u00e2\u20ac\u201d packaging, console script entry"
+  ],
+  "decisions": [
+    "Pure Python stdlib-only, NO third-party deps and NO Node - machine has no node/npm/pip; do not introduce dependencies",
+    "Canonical source of truth is .agentsync/ per-repo (git-tracked); global machine-wide layer deferred to a later phase, merging per-repo over global",
+    "CLAUDE.md is a thin @import of .agentsync/AGENTS.md (live single source), NOT a copy; other agents get copies with an AUTO-GENERATED banner",
+    "Generated files + banner instead of symlinks (Windows Dev Mode requirement)",
+    "MCP stdio protocol implemented by hand rather than the mcp SDK (no pip)",
+    "Session/memory state lives in-repo under .agentsync/ so it is git-trackable and travels with the project",
+    "Git commits: author AND committer must be Ganeshdarshan Bhat <bhatganeshdarshan10@gmail.com>, NO Co-Authored-By trailer (user explicit instruction; local git config already set)",
+    "Targets for v0.1: claude, codex, copilot (user picked; Cursor deferred)"
+  ]
+}

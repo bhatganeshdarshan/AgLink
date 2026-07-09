@@ -38,6 +38,12 @@ CONFIG_TOML = """\
 # Which agents to project the canonical workspace into.
 targets = ["claude", "codex", "copilot"]
 
+[mcp]
+# When true, project only the AgLink server to agents and proxy every other
+# canonical MCP server behind it.
+gateway = false
+gateway_name = "aglink"
+
 [options]
 # Prepend an "auto-generated" banner to projected files.
 banner = true
