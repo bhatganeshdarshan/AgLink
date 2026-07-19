@@ -19,6 +19,33 @@ Describe what this project is and what you want agents to help with.
 - What agents must NOT do (e.g. never touch prod config, never force-push).
 """
 
+GLOBAL_AGENTS_MD = """\
+# Personal Agent Instructions
+
+> Machine-wide rules for every project. AgLink prepends this to each project's
+> own AGENTS.md, so keep it about *you*, not about any one codebase.
+
+## About me
+
+- Preferred languages, tools, and workflow.
+
+## Style
+
+- Conventions you want every agent to follow everywhere.
+"""
+
+GLOBAL_CONFIG_TOML = """\
+# AgLink machine-wide configuration.
+# Every project inherits these; a project's own config.toml overrides them.
+
+[aglink]
+targets = ["claude", "codex", "copilot", "opencode"]
+
+[options]
+banner = true
+global_configs = true
+"""
+
 MCP_JSON = """\
 {
   "mcpServers": {

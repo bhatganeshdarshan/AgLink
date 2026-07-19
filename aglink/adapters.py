@@ -32,7 +32,12 @@ def render_claude(canonical: Canonical) -> dict[str, str]:
     out: dict[str, str] = {}
     mcp_servers = canonical.projected_mcp_servers()
     if canonical.agents_md is not None:
-        body = _banner(canonical, "AGENTS.md") + "@.agentsync/AGENTS.md\n"
+        if canonical.has_global:
+            # An @import can't express the global+project merge, so inline the
+            # already-merged text. Costs a re-sync after edits; stays correct.
+            body = _banner(canonical, "AGENTS.md") + canonical.agents_md
+        else:
+            body = _banner(canonical, "AGENTS.md") + "@.agentsync/AGENTS.md\n"
         out["CLAUDE.md"] = body
     if mcp_servers:
         out[".mcp.json"] = json.dumps(

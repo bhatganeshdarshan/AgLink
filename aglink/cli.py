@@ -14,6 +14,7 @@ from .core import (
     MCP_FILE,
     Canonical,
     find_root,
+    global_dir,
     load,
     load_manifest,
     save_manifest,
@@ -52,15 +53,24 @@ def _render_global(canonical: Canonical) -> list[tuple[Path, str]]:
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    root = Path.cwd()
-    sync_dir = root / AGENTSYNC_DIR
-    sync_dir.mkdir(exist_ok=True)
-
-    seeds = {
-        AGENTS_FILE: templates.AGENTS_MD,
-        MCP_FILE: templates.MCP_JSON,
-        CONFIG_FILE: templates.CONFIG_TOML,
-    }
+    if args.globally:
+        sync_dir = global_dir()
+        if sync_dir is None:
+            print("error: cannot resolve your home directory; set AGLINK_HOME")
+            return 2
+        seeds = {
+            AGENTS_FILE: templates.GLOBAL_AGENTS_MD,
+            MCP_FILE: templates.MCP_JSON,
+            CONFIG_FILE: templates.GLOBAL_CONFIG_TOML,
+        }
+    else:
+        sync_dir = Path.cwd() / AGENTSYNC_DIR
+        seeds = {
+            AGENTS_FILE: templates.AGENTS_MD,
+            MCP_FILE: templates.MCP_JSON,
+            CONFIG_FILE: templates.CONFIG_TOML,
+        }
+    sync_dir.mkdir(parents=True, exist_ok=True)
     for name, content in seeds.items():
         target = sync_dir / name
         if target.exists() and not args.force:
@@ -69,8 +79,12 @@ def cmd_init(args: argparse.Namespace) -> int:
         target.write_text(content, encoding="utf-8")
         print(f"  write  {AGENTSYNC_DIR}/{name}")
 
-    print(f"\nInitialized canonical workspace in {sync_dir}")
-    print("Edit .agentsync/AGENTS.md and mcp.json, then run `aglink sync`.")
+    scope = "machine-wide" if args.globally else "project"
+    print(f"\nInitialized {scope} canonical workspace in {sync_dir}")
+    if args.globally:
+        print("Every project now inherits it; project files override it.")
+    else:
+        print("Edit .agentsync/AGENTS.md and mcp.json, then run `aglink sync`.")
     return 0
 
 
@@ -167,6 +181,15 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     files = _render_all(canonical)
 
     print(f"AgLink doctor - root: {root}")
+    if canonical.has_global:
+        layer = str(canonical.global_layer)
+    else:
+        gdir = global_dir()
+        layer = (
+            f"none (run `aglink init --global` to create {gdir})"
+            if gdir else "unavailable (home directory not resolvable)"
+        )
+    print(f"global layer: {layer}")
     print(f"targets: {', '.join(canonical.targets)}")
     print(f"gateway: {'on' if canonical.gateway else 'off'} "
           f"(name={canonical.gateway_name})")
@@ -238,6 +261,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     files = _render_all(canonical)
 
     print(f"AgLink status - root: {root}")
+    if canonical.has_global:
+        print(f"global layer: {canonical.global_layer}")
     print(f"targets: {', '.join(canonical.targets)}\n")
 
     drift = False
@@ -268,6 +293,10 @@ def main(argv: list[str] | None = None) -> int:
 
     p_init = sub.add_parser("init", help="scaffold a .agentsync/ canonical workspace")
     p_init.add_argument("--force", action="store_true", help="overwrite existing files")
+    p_init.add_argument(
+        "--global", dest="globally", action="store_true",
+        help="scaffold the machine-wide layer in ~/.agentsync instead",
+    )
     p_init.set_defaults(func=cmd_init)
 
     p_sync = sub.add_parser("sync", help="project canonical files into each agent")

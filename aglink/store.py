@@ -107,19 +107,40 @@ class SessionStore:
 # Memory
 # --------------------------------------------------------------------------
 class MemoryStore:
-    def __init__(self, root: Path):
-        self.dir = root / AGENTSYNC_DIR / "memory"
+    """Memory spanning two scopes.
 
-    def append(self, fact: str, mem_type: str = "project", name: str = "") -> dict:
+    `project` memory lives in the repo and travels with it; `global` memory
+    lives in ~/.agentsync/memory and follows you across every project. Search
+    covers both so a personal preference is visible from any repo.
+    """
+
+    def __init__(self, root: Path, global_dir: Path | None = None):
+        self.dir = root / AGENTSYNC_DIR / "memory"
+        self.global_dir = (global_dir / "memory") if global_dir else None
+
+    def _dir_for(self, scope: str) -> Path:
+        if scope == "global" and self.global_dir is not None:
+            return self.global_dir
+        return self.dir
+
+    def append(
+        self,
+        fact: str,
+        mem_type: str = "project",
+        name: str = "",
+        scope: str = "project",
+    ) -> dict:
         if mem_type not in MEMORY_TYPES:
             mem_type = "project"
-        self.dir.mkdir(parents=True, exist_ok=True)
+        target_dir = self._dir_for(scope)
+        scope = "global" if target_dir is self.global_dir else "project"
+        target_dir.mkdir(parents=True, exist_ok=True)
         slug = _slugify(name or fact)
-        path = self.dir / f"{slug}.md"
+        path = target_dir / f"{slug}.md"
         # Never silently merge distinct facts: suffix on collision.
         n = 2
         while path.exists():
-            path = self.dir / f"{slug}-{n}.md"
+            path = target_dir / f"{slug}-{n}.md"
             n += 1
 
         description = fact.strip().splitlines()[0][:100]
@@ -134,11 +155,13 @@ class MemoryStore:
             f"{fact.strip()}\n"
         )
         path.write_text(body, encoding="utf-8")
-        self._index_add(path.stem, description)
-        return {"name": path.stem, "file": path.name, "type": mem_type}
+        self._index_add(path.stem, description, target_dir)
+        return {
+            "name": path.stem, "file": path.name, "type": mem_type, "scope": scope
+        }
 
-    def _index_add(self, name: str, description: str) -> None:
-        index = self.dir / "MEMORY.md"
+    def _index_add(self, name: str, description: str, target_dir: Path) -> None:
+        index = target_dir / "MEMORY.md"
         line = f"- [{name}]({name}.md) — {description}\n"
         if index.exists():
             index.write_text(
@@ -147,29 +170,31 @@ class MemoryStore:
         else:
             index.write_text("# Shared agent memory\n\n" + line, encoding="utf-8")
 
-    def entries(self) -> list[tuple[str, str]]:
-        """All memory files as (name, full_text)."""
-        if not self.dir.is_dir():
-            return []
-        return [
-            (p.stem, p.read_text(encoding="utf-8"))
-            for p in sorted(self.dir.glob("*.md"))
-            if p.name != "MEMORY.md"
-        ]
+    def entries(self) -> list[tuple[str, str, str]]:
+        """All memory files across both scopes as (name, full_text, scope)."""
+        found: list[tuple[str, str, str]] = []
+        for scope, directory in (("global", self.global_dir), ("project", self.dir)):
+            if directory is None or not directory.is_dir():
+                continue
+            for path in sorted(directory.glob("*.md")):
+                if path.name == "MEMORY.md":
+                    continue
+                found.append((path.stem, path.read_text(encoding="utf-8"), scope))
+        return found
 
     def search(self, query: str, limit: int = 5) -> list[dict]:
         terms = [t for t in re.findall(r"[a-z0-9]+", query.lower()) if len(t) > 1]
         if not terms:
             return []
         scored = []
-        for name, text in self.entries():
+        for name, text, scope in self.entries():
             lower = text.lower()
             score = sum(lower.count(t) for t in terms)
             score += sum(3 for t in terms if t in name)  # name hits weigh more
             if score > 0:
-                scored.append((score, name, text))
+                scored.append((score, name, text, scope))
         scored.sort(key=lambda x: (-x[0], x[1]))
         return [
-            {"name": name, "score": score, "content": text}
-            for score, name, text in scored[:limit]
+            {"name": name, "score": score, "content": text, "scope": scope}
+            for score, name, text, scope in scored[:limit]
         ]

@@ -97,13 +97,25 @@ TOOLS = [
                     "type": "string",
                     "description": "Optional short title used for the memory's slug.",
                 },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "global"],
+                    "description": (
+                        "'project' (default) stores the fact with this repo; "
+                        "'global' stores it machine-wide so it applies to every "
+                        "project - use for personal preferences and habits."
+                    ),
+                },
             },
             "required": ["fact"],
         },
     },
     {
         "name": "memory_search",
-        "description": "Keyword-search the shared memory; returns the best-matching facts.",
+        "description": (
+            "Keyword-search the shared memory across BOTH this project and your "
+            "machine-wide global memory; returns the best-matching facts."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -295,9 +307,10 @@ class Gateway:
 
 class Server:
     def __init__(self, root: Path):
+        canonical = load(root)
         self.sessions = SessionStore(root)
-        self.memory = MemoryStore(root)
-        self.gateway = Gateway(load(root))
+        self.memory = MemoryStore(root, canonical.global_layer)
+        self.gateway = Gateway(canonical)
 
     def list_tools(self) -> list[dict]:
         return self.gateway.list_tools()
@@ -342,9 +355,15 @@ class Server:
             )
         if name == "memory_append":
             saved = self.memory.append(
-                args["fact"], args.get("type", "project"), args.get("name", "")
+                args["fact"],
+                args.get("type", "project"),
+                args.get("name", ""),
+                args.get("scope", "project"),
             )
-            return False, f"Memory saved: {saved['name']} (type={saved['type']})"
+            return False, (
+                f"Memory saved: {saved['name']} "
+                f"(type={saved['type']}, scope={saved['scope']})"
+            )
         if name == "memory_search":
             hits = self.memory.search(args["query"])
             if not hits:
@@ -352,7 +371,8 @@ class Server:
             return (
                 False,
                 "\n\n---\n\n".join(
-                    f"[{h['name']}] (score {h['score']})\n{h['content']}" for h in hits
+                    f"[{h['name']}] ({h['scope']}, score {h['score']})\n{h['content']}"
+                    for h in hits
                 ),
             )
         proxied, text = self.gateway.call(name, args)

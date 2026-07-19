@@ -1,8 +1,18 @@
-"""Canonical workspace loading, config, and project-root discovery."""
+"""Canonical workspace loading, config, and project-root discovery.
+
+AgLink resolves two layers and merges them, project winning over global:
+
+    ~/.agentsync/    machine-wide: your personal rules, always-on MCP servers
+    <repo>/.agentsync/   per-project: this repo's rules and servers
+
+Instructions concatenate (global first, project second, so the more specific
+text reads last); MCP servers and config keys are overridden by name.
+"""
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +31,9 @@ BANNER_MD = (
     "Edit .agentsync/{src} and run `aglink sync`. -->"
 )
 
+GLOBAL_HEADER = "<!-- ===== Global instructions (~/.agentsync/AGENTS.md) ===== -->"
+PROJECT_HEADER = "<!-- ===== Project instructions (.agentsync/AGENTS.md) ===== -->"
+
 
 def find_root(start: Path | None = None) -> Path:
     """Walk upward looking for a `.agentsync/` directory; fall back to cwd."""
@@ -29,6 +42,22 @@ def find_root(start: Path | None = None) -> Path:
         if (candidate / AGENTSYNC_DIR).is_dir():
             return candidate
     return start
+
+
+def global_dir() -> Path | None:
+    """The machine-wide canonical workspace (`AGLINK_HOME` overrides it).
+
+    Returns None when the home directory can't be resolved — agents may spawn
+    the MCP server with a stripped environment, and a missing global layer must
+    degrade to "project only" rather than crash the server.
+    """
+    override = os.environ.get("AGLINK_HOME")
+    if override:
+        return Path(override).expanduser()
+    try:
+        return Path.home() / AGENTSYNC_DIR
+    except RuntimeError:
+        return None
 
 
 @dataclass
@@ -41,10 +70,15 @@ class Canonical:
     gateway: bool = False
     gateway_name: str = DEFAULT_GATEWAY_NAME
     global_configs: bool = True
+    global_layer: Path | None = None
 
     @property
     def sync_dir(self) -> Path:
         return self.root / AGENTSYNC_DIR
+
+    @property
+    def has_global(self) -> bool:
+        return self.global_layer is not None
 
     def projected_mcp_servers(self) -> dict:
         if not self.gateway:
@@ -60,6 +94,47 @@ class Canonical:
         }
 
 
+def _read_layer(sync_dir: Path) -> tuple[str | None, dict, dict]:
+    """Read one `.agentsync/` directory into (agents_md, mcp_servers, config)."""
+    agents_path = sync_dir / AGENTS_FILE
+    agents_md = (
+        agents_path.read_text(encoding="utf-8") if agents_path.exists() else None
+    )
+
+    mcp_servers: dict = {}
+    mcp_path = sync_dir / MCP_FILE
+    if mcp_path.exists():
+        data = json.loads(mcp_path.read_text(encoding="utf-8"))
+        mcp_servers = data.get("mcpServers", data)
+
+    cfg: dict = {}
+    cfg_path = sync_dir / CONFIG_FILE
+    if cfg_path.exists():
+        cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+
+    return agents_md, mcp_servers, cfg
+
+
+def _merge_cfg(base: dict, over: dict) -> dict:
+    """Recursive dict merge; `over` (the project) wins."""
+    merged = dict(base)
+    for key, value in over.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_cfg(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _merge_instructions(global_md: str | None, project_md: str | None) -> str | None:
+    if global_md and project_md:
+        return (
+            f"{GLOBAL_HEADER}\n\n{global_md.rstrip()}\n\n"
+            f"{PROJECT_HEADER}\n\n{project_md.lstrip()}"
+        )
+    return project_md if project_md else global_md
+
+
 def load(root: Path) -> Canonical:
     sync_dir = root / AGENTSYNC_DIR
     if not sync_dir.is_dir():
@@ -67,41 +142,33 @@ def load(root: Path) -> Canonical:
             f"no {AGENTSYNC_DIR}/ found under {root} — run `aglink init` first"
         )
 
-    agents_path = sync_dir / AGENTS_FILE
-    agents_md = agents_path.read_text(encoding="utf-8") if agents_path.exists() else None
+    agents_md, mcp_servers, cfg = _read_layer(sync_dir)
 
-    mcp_path = sync_dir / MCP_FILE
-    mcp_servers: dict = {}
-    if mcp_path.exists():
-        data = json.loads(mcp_path.read_text(encoding="utf-8"))
-        mcp_servers = data.get("mcpServers", data)
+    # The project decides whether the machine-wide layer applies to it.
+    use_global = cfg.get("options", {}).get("use_global", True)
+    gdir = global_dir()
+    global_layer: Path | None = None
+    if use_global and gdir and gdir.is_dir() and gdir.resolve() != sync_dir.resolve():
+        g_md, g_mcp, g_cfg = _read_layer(gdir)
+        agents_md = _merge_instructions(g_md, agents_md)
+        mcp_servers = {**g_mcp, **mcp_servers}  # project overrides by name
+        cfg = _merge_cfg(g_cfg, cfg)
+        global_layer = gdir
 
-    targets = list(DEFAULT_TARGETS)
-    banner = True
-    gateway = False
-    gateway_name = DEFAULT_GATEWAY_NAME
-    global_configs = True
-    cfg_path = sync_dir / CONFIG_FILE
-    if cfg_path.exists():
-        cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
-        section = cfg.get("aglink", {})
-        targets = section.get("targets", targets)
-        options = cfg.get("options", {})
-        banner = options.get("banner", banner)
-        global_configs = options.get("global_configs", global_configs)
-        gateway_cfg = cfg.get("mcp", {})
-        gateway = gateway_cfg.get("gateway", gateway)
-        gateway_name = gateway_cfg.get("gateway_name", gateway_name)
+    section = cfg.get("aglink", {})
+    options = cfg.get("options", {})
+    gateway_cfg = cfg.get("mcp", {})
 
     return Canonical(
         root=root,
         agents_md=agents_md,
         mcp_servers=mcp_servers,
-        targets=targets,
-        banner=banner,
-        gateway=gateway,
-        gateway_name=gateway_name,
-        global_configs=global_configs,
+        targets=section.get("targets", list(DEFAULT_TARGETS)),
+        banner=options.get("banner", True),
+        gateway=gateway_cfg.get("gateway", False),
+        gateway_name=gateway_cfg.get("gateway_name", DEFAULT_GATEWAY_NAME),
+        global_configs=options.get("global_configs", True),
+        global_layer=global_layer,
     )
 
 

@@ -40,6 +40,7 @@ pip install -e .
 
 ```bash
 aglink init      # scaffold .agentsync/ (AGENTS.md, mcp.json, config.toml)
+aglink init --global  # scaffold the machine-wide layer in ~/.agentsync
 aglink sync      # project canonical files into every enabled agent
 aglink sync --check   # dry run — show what would change, write nothing
 aglink sync --no-global  # skip files outside the project (~/.codex/config.toml)
@@ -48,6 +49,32 @@ aglink doctor    # detect installed agents and verify each one is wired up
 aglink serve     # run the AgLink MCP server (session handoff + memory)
 aglink sessions  # list saved session checkpoints
 ```
+
+## Two layers: global + project
+
+AgLink resolves a machine-wide layer under every project:
+
+```
+~/.agentsync/            your personal rules + always-on MCP servers
+<repo>/.agentsync/       this repo's rules + servers
+```
+
+Run `aglink init --global` once, put your personal conventions in
+`~/.agentsync/AGENTS.md`, and every project inherits them. Merge rules:
+
+| Piece | Rule |
+|---|---|
+| `AGENTS.md` | **Concatenated** — global first, project second (specific reads last) |
+| `mcp.json` | **Merged by name** — project entry wins on a collision |
+| `config.toml` | **Key override** — project value wins, otherwise inherits global |
+| `memory/` | **Both searchable** — `scope: "global"` for facts that follow you everywhere |
+
+Opt a repo out with `use_global = false` under `[options]`. Point the layer
+somewhere else with the `AGLINK_HOME` environment variable.
+
+> When a global layer is active, `CLAUDE.md` holds the merged text instead of
+> an `@import` (an import can't express a two-layer merge), so re-run
+> `aglink sync` after editing instructions.
 
 ### Files AgLink doesn't own
 
@@ -113,6 +140,6 @@ already had a hand-written `CLAUDE.md`, it's skipped with a warning.
   agent shares a single connection and config.
 - [x] **`doctor`** — detect installed agents and config drift automatically.
 - [x] **OpenCode adapter** + automatic `~/.codex/config.toml` merging.
-- [ ] **Global layer** — machine-wide canonical workspace merged with per-repo.
+- [x] **Global layer** — machine-wide canonical workspace merged with per-repo.
 - [ ] File watcher for auto-sync on `.agentsync/` edits.
 - [ ] Cursor / Gemini / Windsurf adapters.
