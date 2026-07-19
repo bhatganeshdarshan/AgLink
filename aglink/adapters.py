@@ -2,13 +2,22 @@
 
 Each adapter exposes `render(canonical) -> {relative_path: file_content}`.
 The CLI decides whether to write (sync) or diff (status) those files.
+
+Adapters in `GLOBAL_ADAPTERS` additionally target files outside the project
+(e.g. `~/.codex/config.toml`); those are merged into a marked block rather
+than overwritten. See `globalcfg`.
 """
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from .core import BANNER_MD, Canonical
 from .tomlw import dumps_table
+
+# Paths whose renderer already folds in the file's existing content, so the
+# CLI may overwrite them without its usual "don't clobber a user file" guard.
+MERGE_SAFE = {"opencode.json"}
 
 
 def _banner(canonical: Canonical, src: str) -> str:
@@ -80,8 +89,70 @@ def render_copilot(canonical: Canonical) -> dict[str, str]:
     return out
 
 
+# --- OpenCode --------------------------------------------------------------
+# Instructions: root AGENTS.md (same convergent standard as Codex).
+# MCP: opencode.json uses `mcp.<name>.command` as ONE argv array. That file also
+# holds the user's own settings (model, theme...), so we merge our `mcp` key in
+# and preserve every other key rather than overwriting the file.
+def render_opencode(canonical: Canonical) -> dict[str, str]:
+    out: dict[str, str] = {}
+    mcp_servers = canonical.projected_mcp_servers()
+    if canonical.agents_md is not None:
+        out["AGENTS.md"] = _banner(canonical, "AGENTS.md") + canonical.agents_md
+    if not mcp_servers:
+        return out
+
+    existing: dict = {}
+    path = canonical.root / "opencode.json"
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                existing = loaded
+        except json.JSONDecodeError:
+            return out  # unparseable: leave the user's file alone
+
+    mcp = dict(existing.get("mcp") or {})
+    for name, cfg in mcp_servers.items():
+        entry = {
+            "type": "local",
+            "command": [cfg.get("command"), *cfg.get("args", [])],
+            "enabled": True,
+        }
+        if cfg.get("env"):
+            entry["environment"] = cfg["env"]
+        mcp[name] = entry
+
+    merged = dict(existing)
+    merged.setdefault("$schema", "https://opencode.ai/config.json")
+    merged["mcp"] = mcp
+    out["opencode.json"] = json.dumps(merged, indent=2) + "\n"
+    return out
+
+
+# --- Global (outside-the-project) configs ----------------------------------
+# Codex reads MCP servers from ~/.codex/config.toml, which also holds the
+# user's own servers and trust flags -> merge into a marked block.
+def global_codex(canonical: Canonical) -> list[tuple[Path, str]]:
+    mcp_servers = canonical.projected_mcp_servers()
+    if not mcp_servers:
+        return []
+    blocks = []
+    for name, cfg in mcp_servers.items():
+        table = {k: v for k, v in cfg.items() if k != "env" and v}
+        if cfg.get("env"):
+            table["env"] = cfg["env"]
+        blocks.append(dumps_table(f"mcp_servers.{name}", table))
+    return [(Path.home() / ".codex" / "config.toml", "\n\n".join(blocks))]
+
+
 ADAPTERS = {
     "claude": render_claude,
     "codex": render_codex,
     "copilot": render_copilot,
+    "opencode": render_opencode,
+}
+
+GLOBAL_ADAPTERS = {
+    "codex": global_codex,
 }

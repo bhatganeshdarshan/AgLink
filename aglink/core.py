@@ -13,7 +13,7 @@ AGENTS_FILE = "AGENTS.md"
 MCP_FILE = "mcp.json"
 MANIFEST_FILE = ".aglink-manifest.json"
 
-DEFAULT_TARGETS = ["claude", "codex", "copilot"]
+DEFAULT_TARGETS = ["claude", "codex", "copilot", "opencode"]
 DEFAULT_GATEWAY_NAME = "aglink"
 
 BANNER_MD = (
@@ -40,6 +40,7 @@ class Canonical:
     banner: bool = True
     gateway: bool = False
     gateway_name: str = DEFAULT_GATEWAY_NAME
+    global_configs: bool = True
 
     @property
     def sync_dir(self) -> Path:
@@ -79,12 +80,15 @@ def load(root: Path) -> Canonical:
     banner = True
     gateway = False
     gateway_name = DEFAULT_GATEWAY_NAME
+    global_configs = True
     cfg_path = sync_dir / CONFIG_FILE
     if cfg_path.exists():
         cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
         section = cfg.get("aglink", {})
         targets = section.get("targets", targets)
-        banner = cfg.get("options", {}).get("banner", banner)
+        options = cfg.get("options", {})
+        banner = options.get("banner", banner)
+        global_configs = options.get("global_configs", global_configs)
         gateway_cfg = cfg.get("mcp", {})
         gateway = gateway_cfg.get("gateway", gateway)
         gateway_name = gateway_cfg.get("gateway_name", gateway_name)
@@ -97,6 +101,7 @@ def load(root: Path) -> Canonical:
         banner=banner,
         gateway=gateway,
         gateway_name=gateway_name,
+        global_configs=global_configs,
     )
 
 

@@ -2,7 +2,7 @@
 
 [aglink]
 # Which agents to project the canonical workspace into.
-targets = ["claude", "codex", "copilot"]
+targets = ["claude", "codex", "copilot", "opencode"]
 
 [mcp]
 # When true, project only the AgLink server to agents and proxy every other

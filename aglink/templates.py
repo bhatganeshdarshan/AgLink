@@ -36,7 +36,7 @@ CONFIG_TOML = """\
 
 [aglink]
 # Which agents to project the canonical workspace into.
-targets = ["claude", "codex", "copilot"]
+targets = ["claude", "codex", "copilot", "opencode"]
 
 [mcp]
 # When true, project only the AgLink server to agents and proxy every other
@@ -47,4 +47,8 @@ gateway_name = "aglink"
 [options]
 # Prepend an "auto-generated" banner to projected files.
 banner = true
+
+# Also merge into config files outside the project (e.g. ~/.codex/config.toml).
+# AgLink only rewrites its own clearly-marked block and backs the file up first.
+global_configs = true
 """

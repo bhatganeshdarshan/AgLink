@@ -5,8 +5,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, templates
-from .adapters import ADAPTERS
+from . import __version__, globalcfg, templates
+from .adapters import ADAPTERS, GLOBAL_ADAPTERS, MERGE_SAFE
 from .core import (
     AGENTS_FILE,
     AGENTSYNC_DIR,
@@ -36,6 +36,19 @@ def _render_all(canonical: Canonical) -> dict[str, str]:
             continue
         files.update(adapter(canonical))
     return files
+
+
+def _render_global(canonical: Canonical) -> list[tuple[Path, str]]:
+    """Blocks destined for config files outside the project."""
+    blocks: list[tuple[Path, str]] = []
+    if not canonical.global_configs:
+        return blocks
+    for target in canonical.targets:
+        adapter = GLOBAL_ADAPTERS.get(target)
+        if adapter is None:
+            continue
+        blocks.extend(adapter(canonical))
+    return blocks
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -76,10 +89,13 @@ def cmd_sync(args: argparse.Namespace) -> int:
         new_manifest[rel] = new_hash
         existing = path.read_text(encoding="utf-8") if path.exists() else None
 
-        # Refuse to clobber a pre-existing file we didn't generate.
+        # Refuse to clobber a pre-existing file we didn't generate. Files in
+        # MERGE_SAFE are exempt: their renderer already folded in the existing
+        # content, so writing preserves whatever the user had.
         if (
             existing is not None
             and rel not in manifest
+            and rel not in MERGE_SAFE
             and GENERATED_MARK not in existing
         ):
             print(f"  {_c('33', 'skip', color)}   {rel} (user file — not overwriting)")
@@ -106,11 +122,92 @@ def cmd_sync(args: argparse.Namespace) -> int:
     if not args.check:
         save_manifest(root, new_manifest)
 
+    # Config files outside the project (e.g. ~/.codex/config.toml): merge our
+    # marked block in place instead of overwriting the user's file.
+    n_global = 0
+    if not args.no_global:
+        for path, body in _render_global(canonical):
+            action = globalcfg.merge_block(path, body, dry_run=args.check)
+            if action == "unchanged":
+                n_unchanged += 1
+                continue
+            infinitive = {"created": "create", "updated": "update",
+                          "appended": "append"}.get(action, action)
+            label = f"would {infinitive}" if args.check else action
+            print(f"  {_c('35', label, color)} {path}")
+            n_global += 1
+
     verb = "would sync" if args.check else "synced"
-    print(
-        f"\n{verb} {n_written} file(s), {n_unchanged} unchanged, {n_skipped} skipped "
-        f"-> targets: {', '.join(canonical.targets)}"
+    summary = (
+        f"\n{verb} {n_written} file(s), {n_unchanged} unchanged, {n_skipped} skipped"
     )
+    if n_global:
+        summary += f", {n_global} global"
+    print(f"{summary} -> targets: {', '.join(canonical.targets)}")
+    return 0
+
+
+# Per-agent detection: (label, marker files/dirs proving it's set up here,
+# probe executables). Detection is best-effort and never fails the command.
+AGENT_PROBES = {
+    "claude": ("Claude Code", ["CLAUDE.md", ".mcp.json"], ["claude"]),
+    "codex": ("Codex", ["AGENTS.md"], ["codex"]),
+    "copilot": ("GitHub Copilot", [".github/copilot-instructions.md",
+                                   ".vscode/mcp.json"], ["code"]),
+    "opencode": ("OpenCode", ["AGENTS.md", "opencode.json"], ["opencode"]),
+}
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    import shutil
+
+    root = find_root()
+    canonical = load(root)
+    color = not args.no_color
+    files = _render_all(canonical)
+
+    print(f"AgLink doctor - root: {root}")
+    print(f"targets: {', '.join(canonical.targets)}")
+    print(f"gateway: {'on' if canonical.gateway else 'off'} "
+          f"(name={canonical.gateway_name})")
+    print(f"canonical MCP servers: {', '.join(canonical.mcp_servers) or 'none'}\n")
+
+    problems = 0
+    for target in canonical.targets:
+        label, markers, probes = AGENT_PROBES.get(target, (target, [], []))
+        found_bin = next((p for p in probes if shutil.which(p)), None)
+        binary = f"cli: {found_bin}" if found_bin else "cli: not on PATH"
+        print(f"  {label}  ({binary})")
+        for marker in markers:
+            path = root / marker
+            if not path.exists():
+                state, code = "missing ", "31"
+                problems += 1
+            elif marker in files and sha(
+                path.read_text(encoding="utf-8")
+            ) != sha(files[marker]):
+                state, code = "drifted ", "33"
+                problems += 1
+            else:
+                state, code = "ok      ", "32"
+            print(f"     {_c(code, state, color)} {marker}")
+        print()
+
+    # Global configs
+    for path, body in _render_global(canonical):
+        action = globalcfg.merge_block(path, body, dry_run=True)
+        if action == "unchanged":
+            state, code = "ok      ", "32"
+        else:
+            state, code = f"{action:<8}", "33"
+            problems += 1
+        print(f"  global  {_c(code, state, color)} {path}")
+
+    print()
+    if problems:
+        print(f"{problems} issue(s) found - run `aglink sync` to fix.")
+        return 1
+    print("All configured agents are wired up correctly.")
     return 0
 
 
@@ -175,10 +272,19 @@ def main(argv: list[str] | None = None) -> int:
 
     p_sync = sub.add_parser("sync", help="project canonical files into each agent")
     p_sync.add_argument("--check", action="store_true", help="dry run; write nothing")
+    p_sync.add_argument(
+        "--no-global", action="store_true",
+        help="skip config files outside the project (e.g. ~/.codex/config.toml)",
+    )
     p_sync.set_defaults(func=cmd_sync)
 
     p_status = sub.add_parser("status", help="show which projected files are in sync")
     p_status.set_defaults(func=cmd_status)
+
+    p_doctor = sub.add_parser(
+        "doctor", help="detect installed agents and verify each is wired up"
+    )
+    p_doctor.set_defaults(func=cmd_doctor)
 
     p_serve = sub.add_parser(
         "serve", help="run the AgLink MCP server (session handoff + memory) on stdio"

@@ -4,6 +4,10 @@
 # Agent-local, machine-specific CLI config (absolute paths, trust flags).
 .codex/
 
+# Throwaway projects created by the test suite.
+tests/fake-project/
+tests/gw-project/
+
 # Python
 __pycache__/
 *.py[cod]
